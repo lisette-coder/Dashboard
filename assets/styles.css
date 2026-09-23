@@ -1,0 +1,35 @@
+/* =========================================================
+   Ajustes para Tarjetas de Facturas Vencidas e Intereses
+   ========================================================= */
+
+/* Auto-ajuste general de métricas en contenedores angostos */
+.st-metric-compact [data-testid="stMetricValue"] {
+    font-size: 1.15rem !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.st-metric-compact [data-testid="stMetricLabel"] {
+    font-size: 0.8rem !important;
+}
+
+/* Resalte especial para el KPI de Interés Acumulado */
+.kpi-highlight [data-testid="stMetric"] {
+    background-color: rgba(230, 126, 34, 0.15) !important;
+    border: 1px solid #e67e22 !important;
+    border-radius: 8px !important;
+    padding: 6px 10px !important;
+}
+
+.kpi-highlight [data-testid="stMetricValue"] {
+    color: #f39c12 !important;
+    font-weight: bold !important;
+}
+
+/* Texto de interés dentro de la lista desglosada por fecha */
+.text-interes-mora {
+    color: #f39c12;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
