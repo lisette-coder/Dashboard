@@ -1,0 +1,23 @@
+# Entorno virtual
+env/
+venv/
+.venv/
+
+# Archivos de datos e información sensible
+*.xlsx
+*.xls
+*.csv
+*.json
+*.db
+*.sqlite3
+temp_solistica.xlsx
+
+# Secretos de Streamlit
+.streamlit/secrets.toml
+
+# Archivos temporales y de caché de Python
+__pycache__/
+*.pyc
+.DS_Store
+.vscode/
+.idea/
