@@ -6,7 +6,6 @@ on:
     - cron: '59 5 * * *'
   workflow_dispatch:
 
-# Permisos explícitos de lectura y escritura para poder hacer push al repositorio
 permissions:
   contents: write
 
@@ -33,10 +32,8 @@ jobs:
       - name: Ejecutar script de cierre
         run: python cierre_mora_nocturno.py
 
-      - name: Auto-commit del historial JSON congelado
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/historial_mora.json
-          git commit -m "🤖 Auto-cierre de mora [$(date +'%Y-%m-%d')]" || exit 0
-          git push
+      - name: Guardar cambios automaticamente
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "🤖 Auto-cierre de mora nocturno"
+          file_pattern: "data/historial_mora.json"
