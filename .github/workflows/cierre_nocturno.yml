@@ -1,0 +1,36 @@
+name: Cierre Nocturno de Mora (10:00 PM CST)
+
+on:
+  schedule:
+    # 04:00 UTC = 22:00 (10:00 PM) hora de México
+    - cron: '59 5 * * *'
+  workflow_dispatch:
+
+jobs:
+  ejecutar-cierre:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout del proyecto
+        uses: actions/checkout@v3
+
+      - name: Configurar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Instalar librerías
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas openpyxl gdown
+
+      - name: Ejecutar script de cierre
+        run: python cierre_mora_nocturno.py
+
+      - name: Auto-commit del historial JSON congelado
+        run: |
+          git config --global user.name "GitHub Action Bot"
+          git config --global user.email "action@github.com"
+          git add data/historial_mora.json
+          git commit -m "🤖 Auto-cierre de mora [$(date +'%Y-%m-%d')]" || exit 0
+          git push
