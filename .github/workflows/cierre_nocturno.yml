@@ -1,10 +1,14 @@
-name: Cierre Nocturno de Mora (10:00 PM CST)
+name: Cierre Nocturno de Mora (11:59 PM CST)
 
 on:
   schedule:
-    # 04:00 UTC = 22:00 (10:00 PM) hora de México
+    # 05:59 UTC equivale a las 23:59 (11:59 PM) hora del Centro de México
     - cron: '59 5 * * *'
   workflow_dispatch:
+
+# Permisos explícitos de lectura y escritura para poder hacer push al repositorio
+permissions:
+  contents: write
 
 jobs:
   ejecutar-cierre:
@@ -12,10 +16,12 @@ jobs:
 
     steps:
       - name: Checkout del proyecto
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configurar Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
@@ -29,8 +35,8 @@ jobs:
 
       - name: Auto-commit del historial JSON congelado
         run: |
-          git config --global user.name "GitHub Action Bot"
-          git config --global user.email "action@github.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add data/historial_mora.json
           git commit -m "🤖 Auto-cierre de mora [$(date +'%Y-%m-%d')]" || exit 0
           git push
