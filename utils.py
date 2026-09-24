@@ -6,6 +6,7 @@ import plotly.express as px
 import streamlit as st
 import os
 from pathlib import Path
+import json
 
 
 # URL constante de Google Drive
@@ -49,3 +50,42 @@ def load_data_deuda():
             st.error(f"Error al leer pestaña 'Cap': {e}")
             return None
     return None
+
+
+RUTA_HISTORIAL_JSON = Path("data/historial_mora.json")
+
+
+def obtener_mora_congelada_consolidada():
+  """Lee el JSON congelado por GitHub Actions y devuelve únicamente
+
+  el ÚLTIMO cierre registrado para evitar duplicación de periodos.
+  """
+  if not RUTA_HISTORIAL_JSON.exists():
+    return pd.DataFrame()
+
+  try:
+    with open(RUTA_HISTORIAL_JSON, "r", encoding="utf-8") as f:
+      database = json.load(f)
+
+    if not database:
+      return pd.DataFrame()
+
+    # Tomar el último período ejecutado (la clave de fecha más reciente)
+    ultimos_periodos = sorted(database.keys())
+    if not ultimos_periodos:
+      return pd.DataFrame()
+
+    ultimo_cierre = ultimos_periodos[-1]  # P. ej. "2026-09-23"
+    facturas_ultimo_cierre = database[ultimo_cierre]
+
+    registros = []
+    for f_id, info in facturas_ultimo_cierre.items():
+      copia = info.copy()
+      copia["Periodo_Cierre"] = ultimo_cierre
+      copia["Factura_ID"] = f_id
+      registros.append(copia)
+
+    return pd.DataFrame(registros)
+  except Exception as e:
+    st.error(f"Error al leer el historial de mora congelado: {e}")
+    return pd.DataFrame()

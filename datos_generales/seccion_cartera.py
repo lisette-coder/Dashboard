@@ -4,7 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 import calendar
-
+from utils import obtener_mora_congelada_consolidada
 
 # Asegúrate de tener importado NOMBRES_MESES desde tu módulo de constantes
 from .constantes import NOMBRES_MESES
@@ -528,7 +528,50 @@ def calcular_deuda_diaria_vencida(
 # COMPONENTE UI: Tabla/Lista de Facturas Vencidas
 # ---------------------------------------------------------
 def render_seccion_facturas_vencidas(df, tasa_mensual=0.035):
-    """Renderiza la tabla acumulada por día ajustando el tamaño de texto de los KPIs para evitar recortes."""
+  """Renderiza las facturas vencidas agrupadas exactamente por su fecha original de vencimiento."""
+  df_historial = obtener_mora_congelada_consolidada()
+  usando_congelados = False
+
+  if not df_historial.empty:
+    usando_congelados = True
+
+    # 1. Asegurar formato de fecha sin horas
+    df_historial["Fecha_Vencimiento"] = pd.to_datetime(
+        df_historial["Fecha_Vencimiento"]
+    ).dt.floor("D")
+
+    # 2. Recalcular días de retraso de forma exacta a la fecha de hoy
+    hoy = pd.to_datetime("today").floor("D")
+    df_historial["Dias_Atraso_Real"] = (
+        hoy - df_historial["Fecha_Vencimiento"]
+    ).dt.days
+
+    # KPIs Globales (Suma $18,831,734.82 exacta)
+    total_facturas = len(df_historial)
+    monto_pendiente = df_historial["Monto_Base"].sum()
+    interes_acum = df_historial["Interes_Mora_Congelado"].sum()
+    max_atraso = (
+        int(df_historial["Dias_Atraso_Real"].max())
+        if not df_historial.empty
+        else 0
+    )
+
+    # 3. Agrupar ESTRICTAMENTE por Fecha_Vencimiento
+    df_dias = (
+        df_historial.groupby("Fecha_Vencimiento")
+        .agg(
+            Cantidad_Facturas=("Factura_ID", "count"),
+            Monto_Total=("Monto_Base", "sum"),
+            Interes_Mora=("Interes_Mora_Congelado", "sum"),
+            Dias_Atraso=("Dias_Atraso_Real", "max"),
+        )
+        .reset_index()
+    )
+
+    df_dias.rename(columns={"Fecha_Vencimiento": "Fecha_Dia"}, inplace=True)
+    df_dias.sort_values(by="Fecha_Dia", ascending=False, inplace=True)
+
+  else:
     (
         df_dias,
         total_facturas,
@@ -537,12 +580,22 @@ def render_seccion_facturas_vencidas(df, tasa_mensual=0.035):
         max_atraso,
     ) = calcular_deuda_diaria_vencida(df, tasa_mensual=tasa_mensual)
 
-    with st.container(border=True):
-        st.markdown("### ⚠️ Facturas Vencidas por Día")
+  # -------------------------------------------------------------
+  # INTERFAZ GRÁFICA STREAMLIT
+  # -------------------------------------------------------------
+  with st.container(border=True):
+    c_titulo, c_badge = st.columns([0.7, 0.3])
+    with c_titulo:
+      st.markdown("### ⚠️ Facturas Vencidas por Día")
+    with c_badge:
+      if usando_congelados:
+        st.caption("🔒 **Cierre Congelado (JSON)**")
+      else:
+        st.caption("⚡ **Cálculo en Vivo**")
 
-        # 🎨 CSS para auto-ajustar el texto de las métricas y evitar que se corten los montos
-        st.markdown(
-            """
+    # CSS Métricas
+    st.markdown(
+        """
             <style>
             [data-testid="stMetricValue"] {
                 font-size: 1.15rem !important;
@@ -555,45 +608,45 @@ def render_seccion_facturas_vencidas(df, tasa_mensual=0.035):
             }
             </style>
             """,
-            unsafe_allow_html=True,
-        )
+        unsafe_allow_html=True,
+    )
 
-        # KPIs Superiores
-        k1, k2 = st.columns(2)
-        k1.metric("Facturas Vencidas", f"{total_facturas}")
-        k2.metric("Monto Pendiente", f"${monto_pendiente:,.2f}")
+    # KPIs Superiores
+    k1, k2 = st.columns(2)
+    k1.metric("Facturas Vencidas", f"{total_facturas}")
+    k2.metric("Monto Pendiente", f"${monto_pendiente:,.2f}")
 
-        k3, k4 = st.columns(2)
-        k3.metric("Interés Acumulado", f"${interes_acum:,.2f}")
-        k4.metric("Mayor Atraso", f"{max_atraso}d")
+    k3, k4 = st.columns(2)
+    k3.metric("Interés Acumulado", f"${interes_acum:,.2f}")
+    k4.metric("Mayor Atraso", f"{max_atraso}d")
 
-        st.divider()
+    st.divider()
 
-        if not df_dias.empty:
+    if not df_dias.empty:
+      st.caption(
+          f"Tasa: **{tasa_mensual*100:.1f}% mens.** (calculado por días"
+          " transcurridos)"
+      )
+
+      with st.container(height=240):
+        for _, row in df_dias.iterrows():
+          c_info, c_monto = st.columns([0.55, 0.45])
+          fecha_fmt = row["Fecha_Dia"].strftime("%d de %b, %Y")
+
+          with c_info:
+            st.markdown(f"🗓️ **{fecha_fmt}**")
             st.caption(
-                f"Tasa: **{tasa_mensual*100}% mens.** (calculado por días transcurridos)"
+                f"**{int(row['Dias_Atraso'])} días de retraso** •"
+                f" ({row['Cantidad_Facturas']} fact.)"
             )
 
-            with st.container(height=240):
-                for _, row in df_dias.iterrows():
-                    c_info, c_monto = st.columns([0.55, 0.45])
+          with c_monto:
+            st.markdown(f"**${row['Monto_Total']:,.2f}**")
+            st.caption(f"Interés: **+${row['Interes_Mora']:,.2f}**")
 
-                    fecha_fmt = row["Fecha_Dia"].strftime("%d de %b, %Y")
-
-                    with c_info:
-                        st.markdown(f"🗓️ **{fecha_fmt}**")
-                        st.caption(
-                            f"**{row['Dias_Atraso']} días de retraso** •"
-                            f" ({row['Cantidad_Facturas']} fact.)"
-                        )
-
-                    with c_monto:
-                        st.markdown(f"**${row['Monto_Total']:,.2f}**")
-                        st.caption(f"Interés: **+${row['Interes_Mora']:,.2f}**")
-
-                    st.markdown(
-                        "<hr style='margin: 3px 0px; border-top: 1px dashed #444;'>",
-                        unsafe_allow_html=True,
-                    )
-        else:
-            st.info("🎉 No hay días con pagos pendientes.")
+          st.markdown(
+              "<hr style='margin: 3px 0px; border-top: 1px dashed #444;'>",
+              unsafe_allow_html=True,
+          )
+    else:
+      st.info("🎉 No hay días con pagos pendientes.")
