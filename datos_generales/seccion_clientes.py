@@ -1,8 +1,23 @@
-import streamlit as st
 import pandas as pd
 import plotly.express as px
+import streamlit as st
 
 from .filtros import render_filtros_tiempo
+
+
+def _limpiar_a_float(val):
+    """Auxiliar para limpiar valores con '$', '%', ',' y convertirlos a float de forma segura."""
+    if pd.isna(val) or val is None:
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    val_str = (
+        str(val).replace("$", "").replace("%", "").replace(",", "").strip()
+    )
+    try:
+        return float(val_str)
+    except (ValueError, TypeError):
+        return 0.0
 
 
 def render_curva_clientes_activos_diarios(
@@ -26,6 +41,8 @@ def render_curva_clientes_activos_diarios(
         st.warning("No hay datos disponibles para el filtro seleccionado.")
         return
 
+    df_filtrado = df_filtrado.copy()
+
     total_clientes_unicos = df_filtrado[columna_cliente].nunique()
     total_facturas = len(df_filtrado)
 
@@ -39,11 +56,16 @@ def render_curva_clientes_activos_diarios(
         )
     )
 
-    ticket_promedio = (
-        (df_filtrado[col_monto_ticket].sum() / total_facturas)
-        if (col_monto_ticket and total_facturas > 0)
-        else 0.0
-    )
+    # Convertir la columna de monto a números float limpios
+    if col_monto_ticket:
+        monto_total_num = (
+            df_filtrado[col_monto_ticket].apply(_limpiar_a_float).sum()
+        )
+        ticket_promedio = (
+            (monto_total_num / total_facturas) if total_facturas > 0 else 0.0
+        )
+    else:
+        ticket_promedio = 0.0
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -63,7 +85,7 @@ def render_curva_clientes_activos_diarios(
         )
 
     df_filtrado["Fecha_Dia"] = pd.to_datetime(
-        df_filtrado[date_column], errors="coerce"
+        df_filtrado[date_column], dayfirst=True, errors="coerce"
     ).dt.date
     df_agrupado = (
         df_filtrado.groupby("Fecha_Dia")[columna_cliente]
@@ -101,6 +123,7 @@ def render_curva_clientes_activos_diarios(
             xaxis_title="Día",
             yaxis_title="Clientes Únicos",
             plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
             xaxis_tickangle=-45,
         )
         st.plotly_chart(fig, use_container_width=True)

@@ -7,10 +7,8 @@ venv/
 *.xlsx
 *.xls
 *.csv
-*.json
 *.db
 *.sqlite3
-temp_solistica.xlsx
 
 # Secretos de Streamlit
 .streamlit/secrets.toml

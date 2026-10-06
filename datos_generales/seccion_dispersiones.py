@@ -1,106 +1,129 @@
-import streamlit as st
+import calendar
 import pandas as pd
 import plotly.express as px
-import calplot
-import matplotlib.pyplot as plt
-import calendar
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots 
+from plotly.subplots import make_subplots
+import streamlit as st
+from datetime import datetime
 
+from .constantes import dias_map, dias_semana, meses_esp
 from .filtros import render_filtros_tiempo
-from .constantes import meses_esp, dias_semana, dias_map
 
+
+def _limpiar_a_float(val):
+    """Limpia cadenas con '$', ',' o espacios y devuelve float seguro."""
+    if pd.isna(val):
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    val_str = str(val).replace("$", "").replace(",", "").strip()
+    return pd.to_numeric(val_str, errors="coerce") or 0.0
 
 
 def render_curva_financiera_generica(
     df,
-    columna_metrica,
-    titulo_base,
+    columna_metrica="Monto Dispersado",
+    titulo_base="Evolución de Montos Dispersados",
     color_linea="royalblue",
     date_column="Fecha de Dispersión",
     filtro_estatus_col=None,
     filtro_estatus_val=None,
 ):
-    """Plantilla única reutilizable para curvas temporales sencillas."""
+    """Suma y muestra la evolución diaria de montos dispersados por fecha de dispersión."""
     st.markdown("---")
     st.subheader(f"📈 {titulo_base}")
 
     df_trabajo = df.copy()
-    if filtro_estatus_col and filtro_estatus_val:
-        df_trabajo = df_trabajo[df_trabajo[filtro_estatus_col] == filtro_estatus_val]
 
-    df_filtrado, tipo_filtro = render_filtros_tiempo(
-        df_trabajo,
-        sufijo_key=f"curva_{columna_metrica.lower().replace(' ', '_')}",
-        date_column=date_column,
+    # Normalizar nombre de columna de monto por si tiene espacios residuales
+    col_monto = (
+        columna_metrica
+        if columna_metrica in df_trabajo.columns
+        else columna_metrica.strip()
     )
 
-    if date_column not in df_filtrado.columns:
+    if (
+        date_column not in df_trabajo.columns
+        or col_monto not in df_trabajo.columns
+    ):
         st.warning(
-            f"No se encontró la columna de fecha '{date_column}' en los datos."
+            f"No se encontraron las columnas necesarias ('{date_column}' / '{col_monto}') en los datos."
         )
         return
 
-    if not df_filtrado.empty and columna_metrica in df_filtrado.columns:
-        total_filtrado = df_filtrado[columna_metrica].sum()
+    if filtro_estatus_col and filtro_estatus_val:
+        df_trabajo = df_trabajo[
+            df_trabajo[filtro_estatus_col] == filtro_estatus_val
+        ]
+
+    # Convertir a datetime y filtrar para evitar mostrar fechas futuras a la de hoy
+    df_trabajo["_Fecha_DT"] = pd.to_datetime(
+        df_trabajo[date_column], errors="coerce"
+    )
+    hoy = datetime.now()
+    df_trabajo = df_trabajo[df_trabajo["_Fecha_DT"] <= hoy].copy()
+
+    df_filtrado, tipo_filtro = render_filtros_tiempo(
+        df_trabajo,
+        sufijo_key=f"curva_{col_monto.lower().replace(' ', '_')}",
+        date_column=date_column,
+    )
+
+    if not df_filtrado.empty:
+        df_filtrado["Monto_Num"] = df_filtrado[col_monto].apply(_limpiar_a_float)
+        df_filtrado["Fecha_Dia"] = pd.to_datetime(
+            df_filtrado[date_column], errors="coerce"
+        ).dt.date
+
+        total_filtrado = df_filtrado["Monto_Num"].sum()
+
         st.metric(
-            label=f"Total Acumulado ({tipo_filtro})",
+            label=f"Total Acumulado Dispersado ({tipo_filtro})",
             value=f"${total_filtrado:,.2f}",
         )
 
-    df_filtrado["Fecha_Dia"] = pd.to_datetime(
-        df_filtrado[date_column], errors="coerce"
-    ).dt.date
-    df_agrupado = (
-        df_filtrado.groupby("Fecha_Dia")[columna_metrica].sum().reset_index()
-    )
-    df_agrupado = df_agrupado.sort_values(by="Fecha_Dia")
+        # Suma exacta de montos por cada día de dispersión
+        df_agrupado = (
+            df_filtrado.groupby("Fecha_Dia")["Monto_Num"].sum().reset_index()
+        )
+        df_agrupado = df_agrupado.sort_values(by="Fecha_Dia")
 
-    if not df_agrupado.empty:
-        df_agrupado["Fecha_Str"] = pd.to_datetime(
-            df_agrupado["Fecha_Dia"]
-        ).dt.strftime("%Y-%m-%d")
+        if not df_agrupado.empty:
+            df_agrupado["Fecha_Str"] = pd.to_datetime(
+                df_agrupado["Fecha_Dia"]
+            ).dt.strftime("%Y-%m-%d")
 
-        fig = px.line(
-            df_agrupado,
-            x="Fecha_Str",
-            y=columna_metrica,
-            markers=True,
-            title=f"{titulo_base} ({tipo_filtro})",
-            labels={"Fecha_Str": "Día", columna_metrica: f"{titulo_base} ($)"},
-        )
-        fig.update_traces(
-            line=dict(width=2, color=color_linea),
-            marker=dict(size=6),
-            hovertemplate="Día: %{x}<br>Monto: $%{y:,.2f}<extra></extra>",
-        )
-        fig.update_layout(
-            xaxis_title="Día",
-            yaxis_title=f"{titulo_base} ($)",
-            showlegend=False,
-            plot_bgcolor="rgba(0,0,0,0)",
-            xaxis_tickangle=-45,
-        )
-        st.plotly_chart(fig, use_container_width=True)
+            fig = px.line(
+                df_agrupado,
+                x="Fecha_Str",
+                y="Monto_Num",
+                markers=True,
+                title=f"{titulo_base} - Vista Diaria ({tipo_filtro})",
+                labels={"Fecha_Str": "Día", "Monto_Num": "Monto Dispersado ($)"},
+            )
+            fig.update_traces(
+                line=dict(width=2, color=color_linea),
+                marker=dict(size=6),
+                hovertemplate="Día: %{x}<br>Monto Dispersado: $%{y:,.2f}<extra></extra>",
+            )
+            fig.update_layout(
+                xaxis_title="Día",
+                yaxis_title="Monto Dispersado ($)",
+                showlegend=False,
+                plot_bgcolor="rgba(0,0,0,0)",
+                xaxis_tickangle=-45,
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("No hay datos diarios disponibles para el filtro seleccionado.")
     else:
-        st.warning("No hay datos diarios disponibles para el filtro seleccionado.")
-
-
-
-
-
-
-
-
+        st.warning("No hay registros en el rango seleccionado.")
 
 
 def render_grafica_dispersiones_por_dia_semana(
-    df, date_column="Fecha de Dispersión", monto_column="Monto Dispersado "
+    df, date_column="Fecha de Dispersión", monto_column="Monto Dispersado"
 ):
-    """Genera barras agrupadas por día hábil ordenadas cronológicamente
-
-    con una línea acumulada correcta.
-    """
+    """Genera barras agrupadas por día hábil con curva acumulada."""
     st.markdown("### 📊 Dispersión Diaria Agrupada por Semana")
 
     col_monto_real = (
@@ -113,40 +136,34 @@ def render_grafica_dispersiones_por_dia_semana(
         or date_column not in df.columns
         or col_monto_real not in df.columns
     ):
-        st.warning(
-            "No hay datos suficientes para generar la gráfica por días y semanas."
-        )
+        st.warning("No hay datos suficientes para generar la gráfica por días y semanas.")
         return
 
-    # 1. Preparación y ordenamiento cronológico
     df_dia = df[[date_column, col_monto_real]].copy()
     df_dia["Fecha"] = pd.to_datetime(df_dia[date_column], errors="coerce")
-    df_dia["Monto"] = pd.to_numeric(
-        df_dia[col_monto_real], errors="coerce"
-    ).fillna(0)
+    
+    # Filtrar fechas mayores al día de hoy
+    hoy = datetime.now()
+    df_dia = df_dia[df_dia["Fecha"] <= hoy]
+
+    df_dia["Monto"] = df_dia[col_monto_real].apply(_limpiar_a_float)
     df_dia = df_dia.dropna(subset=["Fecha"])
 
     if df_dia.empty:
         st.warning("No hay registros válidos para graficar.")
         return
 
-    # Extraer variables temporales
     df_dia["Año"] = df_dia["Fecha"].dt.year
     df_dia["Num_Semana"] = df_dia["Fecha"].dt.isocalendar().week
     df_dia["Num_Dia"] = df_dia["Fecha"].dt.dayofweek
 
-    # Filtrar solo Lunes a Viernes
+    # Solo Lunes a Viernes
     df_dia = df_dia[df_dia["Num_Dia"] <= 4]
 
-    # Crear etiqueta de semana manteniendo el orden numérico
-    df_dia["Semana_Etiqueta"] = df_dia["Num_Semana"].apply(
-        lambda s: f"Semana {s:02d}"
-    )
+    df_dia["Semana_Etiqueta"] = df_dia["Num_Semana"].apply(lambda s: f"Semana {s:02d}")
+    dias_map_local = {0: "Lunes", 1: "Martes", 2: "Miércoles", 3: "Jueves", 4: "Viernes"}
+    df_dia["Día"] = df_dia["Num_Dia"].map(dias_map_local)
 
-    dias_map = {0: "Lunes", 1: "Martes", 2: "Miércoles", 3: "Jueves", 4: "Viernes"}
-    df_dia["Día"] = df_dia["Num_Dia"].map(dias_map)
-
-    # 2. Agrupar ordenando primero por Año y Número de Semana
     df_grouped = (
         df_dia.groupby(["Año", "Num_Semana", "Semana_Etiqueta", "Num_Dia", "Día"])[
             "Monto"
@@ -155,16 +172,11 @@ def render_grafica_dispersiones_por_dia_semana(
         .reset_index()
     )
 
-    # Orden estricto cronológico
     df_grouped = df_grouped.sort_values(by=["Año", "Num_Semana", "Num_Dia"])
-
-    # Calcular acumulado ordenado
     df_grouped["Acumulado"] = df_grouped["Monto"].cumsum()
 
-    # Obtener orden único de semanas para el eje X
     semanas_ordenadas = list(df_grouped["Semana_Etiqueta"].unique())
 
-    # Paleta de colores para los 5 días
     colores_dias = {
         "Lunes": "#90e0ef",
         "Martes": "#48cae4",
@@ -173,10 +185,8 @@ def render_grafica_dispersiones_por_dia_semana(
         "Viernes": "#023e8a",
     }
 
-    # 3. Construir la gráfica de Plotly
     fig = go.Figure()
 
-    # Trazos de barras por día
     for dia_nombre in ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]:
         df_sub = df_grouped[df_grouped["Día"] == dia_nombre]
         fig.add_trace(
@@ -189,7 +199,6 @@ def render_grafica_dispersiones_por_dia_semana(
             )
         )
 
-    # Agrupar el acumulado por semana para la línea continua única
     df_linea = (
         df_grouped.groupby(["Año", "Num_Semana", "Semana_Etiqueta"])["Acumulado"]
         .max()
@@ -197,7 +206,6 @@ def render_grafica_dispersiones_por_dia_semana(
     )
     df_linea = df_linea.sort_values(by=["Año", "Num_Semana"])
 
-    # Trazo único de la línea acumulada
     fig.add_trace(
         go.Scatter(
             x=df_linea["Semana_Etiqueta"],
@@ -211,7 +219,6 @@ def render_grafica_dispersiones_por_dia_semana(
         )
     )
 
-    # 4. Configurar Layout
     fig.update_layout(
         barmode="group",
         bargap=0.20,
@@ -221,7 +228,7 @@ def render_grafica_dispersiones_por_dia_semana(
             title="Semana del Año",
             type="category",
             categoryorder="array",
-            categoryarray=semanas_ordenadas,  # Forzar el orden cronológico estricto
+            categoryarray=semanas_ordenadas,
         ),
         yaxis=dict(
             title="Monto Dispersado por Día ($)",
@@ -252,16 +259,14 @@ def render_grafica_dispersiones_por_dia_semana(
     st.plotly_chart(fig, use_container_width=True)
 
 
-
 def render_calendario_calor_dispersiones(
     df,
     date_column="Fecha de Dispersión",
-    monto_column="Monto Dispersado ",
+    monto_column="Monto Dispersado",
 ):
-    """Genera un calendario de calor anual compacto con casillas cuadradas y semanas ordenadas correctamente."""
+    """Genera un calendario de calor anual basado en la Fecha de Dispersión."""
     st.markdown("### 📅 Calendario Anual de Dispersiones")
 
-    # Limpieza de nombre de columna por seguridad
     col_monto_real = (
         monto_column if monto_column in df.columns else monto_column.strip()
     )
@@ -275,31 +280,28 @@ def render_calendario_calor_dispersiones(
         st.warning("No hay datos suficientes para generar el calendario.")
         return
 
-    # 1. Preparación de datos
     df_heat = df[[date_column, col_monto_real]].copy()
     df_heat["Fecha"] = pd.to_datetime(df_heat[date_column], errors="coerce")
-    df_heat["Monto"] = pd.to_numeric(
-        df_heat[col_monto_real], errors="coerce"
-    ).fillna(0)
+
+    # Filtrar fechas mayores al día de hoy
+    hoy = datetime.now()
+    df_heat = df_heat[df_heat["Fecha"] <= hoy]
+
+    df_heat["Monto"] = df_heat[col_monto_real].apply(_limpiar_a_float)
     df_heat = df_heat.dropna(subset=["Fecha"])
 
     if df_heat.empty:
         st.warning("No hay fechas válidas en los datos.")
         return
 
-    # Determinar el año a mostrar (el más reciente en el dataset)
     anio = int(df_heat["Fecha"].dt.year.max())
 
-    # Agrupar suma por fecha exacta (YYYY-MM-DD)
     df_daily = (
         df_heat.groupby(df_heat["Fecha"].dt.strftime("%Y-%m-%d"))["Monto"]
         .sum()
         .to_dict()
     )
 
-    
-
-    # 2. Configurar cuadrícula Subplots 3 filas x 4 columnas
     fig = make_subplots(
         rows=3,
         cols=4,
@@ -308,20 +310,17 @@ def render_calendario_calor_dispersiones(
         horizontal_spacing=0.03,
     )
 
-    # Buscar el valor máximo global para normalizar la escala de color
     max_monto = max(df_daily.values()) if df_daily else 1
 
-    # Paleta de colores: Azul Marino -> Acua -> Turquesa claro
     custom_blues = [
-        [0.0, "#f0f8ff"],  # Blanco/Azul helado (Días sin dispersión)
-        [0.001, "#b2ebd9"],  # Acua claro (Monto muy bajo)
-        [0.35, "#4682b4"],  # Azul Acero
-        [0.70, "#005f73"],  # Azul Petróleo
-        [1.0, "#0a2540"],  # Azul Marino Intenso (Picos máximos)
+        [0.0, "#f0f8ff"],
+        [0.001, "#b2ebd9"],
+        [0.35, "#4682b4"],
+        [0.70, "#005f73"],
+        [1.0, "#0a2540"],
     ]
 
-    # 3. Construir el calendario mes a mes
-    calendar.setfirstweekday(calendar.SUNDAY)  # Iniciar semanas en Domingo
+    calendar.setfirstweekday(calendar.SUNDAY)
 
     for mes in range(1, 13):
         row = (mes - 1) // 4 + 1
@@ -329,9 +328,9 @@ def render_calendario_calor_dispersiones(
 
         cal = calendar.monthcalendar(anio, mes)
 
-        z_vals = []  # Valores numéricos para el color
-        text_vals = []  # Número del día para la casilla
-        hover_vals = []  # Texto al pasar el cursor
+        z_vals = []
+        text_vals = []
+        hover_vals = []
 
         for semana in cal:
             fila_z = []
@@ -356,8 +355,6 @@ def render_calendario_calor_dispersiones(
             text_vals.append(fila_text)
             hover_vals.append(fila_hover)
 
-        # NOTA: Se removieron los .reverse() para evitar invertir dos veces el eje Y
-
         heatmap = go.Heatmap(
             z=z_vals,
             x=dias_semana,
@@ -374,11 +371,8 @@ def render_calendario_calor_dispersiones(
         )
 
         fig.add_trace(heatmap, row=row, col=col)
-
-        # Ocultar eje Y en todos los subplots
         fig.update_yaxes(visible=False, row=row, col=col)
 
-        # Configurar eje X: Mostrar días SOLO en la última fila (row == 3)
         es_ultima_fila = row == 3
         fig.update_xaxes(
             showline=False,
@@ -391,7 +385,6 @@ def render_calendario_calor_dispersiones(
             col=col,
         )
 
-    # 4. Forzar que las casillas se mantengan cuadradas (relación 1:1) e invertir eje Y aquí
     for r in range(1, 4):
         for c in range(1, 5):
             idx = (r - 1) * 4 + c
@@ -401,12 +394,11 @@ def render_calendario_calor_dispersiones(
                     f"yaxis{axis_suffix}": dict(
                         scaleanchor=f"x{axis_suffix}",
                         scaleratio=1,
-                        autorange="reversed",  # Invierte el eje Y para que la fila 0 (día 1) quede arriba
+                        autorange="reversed",
                     )
                 }
             )
 
-    # Layout general
     fig.update_layout(
         title=dict(
             text=f"Resumen Anual de Dispersiones {anio}",
